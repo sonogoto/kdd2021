@@ -165,14 +165,14 @@ def train(g, train_eid=None, fanouts=(8,8,8), hidden_dims=(64, 32), rel_emb_dim=
             print("start training ......")
         input_feat = node_feat[input_nodes.to('cpu')].type(torch.float32).to(gcn.device)
         pos_score, neg_score = gcn((input_feat, pos_edge_subg, neg_edge_subg, blocks))
-        loss = (pos_score - neg_score + 5).clamp(min=0).mean()
+        loss = (pos_score - neg_score + 10).clamp(min=0).mean()
         if batch_idx % 100 == 0:
             print(time.ctime(), "%d-th mini batch, loss: %s" % (batch_idx, loss.item()))
-            torch.save(gcn.state_dict(), "/home/liusx/torch_models/remove_nodes/gcn_weight.pth.%d"%batch_idx)
+            torch.save(gcn.state_dict(), "/home/liusx/torch_models/warm_start1/gcn_weight.pth.%d"%batch_idx)
         opt.zero_grad()
         loss.backward()
         opt.step()
-    torch.save(gcn.state_dict(), "/home/liusx/torch_models/remove_nodes/gcn_weight.pth.done")
+    torch.save(gcn.state_dict(), "/home/liusx/torch_models/warm_start1/gcn_weight.pth.done")
 
 
 def predict(model_path,
@@ -256,6 +256,6 @@ if __name__ == "__main__":
     print(time.ctime(), 'building train graph ......')
     g = build_graph()
     print(time.ctime(), 'building train graph done')
-    train(g, batch_size=4096, device='cuda:6')
+    train(g, batch_size=4096, device='cuda:6', model_path="/home/liusx/torch_models/gcn_weight.pth.11700")
     pass
 
