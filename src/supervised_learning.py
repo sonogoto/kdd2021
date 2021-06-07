@@ -32,14 +32,16 @@ class GCNNet(torch.nn.Module):
 
     def forward(self, data):
         input_nodes, edge_subg, blocks = data
+        out_inc = blocks[0].inc('out').to(self.device)
+        in_inc = blocks[0].inc('in').to(self.device)
         out_edge_emb = torch.sparse.mm(
-            blocks[0].inc('out').to(self.device),
+            out_inc,
             self.out_transform(self.rel_emb(blocks[0].edata['type'].to(self.device)))
-        ).div(blocks[0].inc('out').to(self.device).sum(dim=1, keepdim=True))
+        ).div(torch.sparse.sum(out_inc, dim=1).to_dense().unsqueeze(-1) + 1e-8)
         in_edge_emb = torch.sparse.mm(
-            blocks[0].inc('in').to(self.device),
+            in_inc,
             self.in_transform(self.rel_emb(blocks[0].edata['type'].to(self.device)))
-        ).div(blocks[0].inc('in').to(self.device).sum(dim=1, keepdim=True))
+        ).div(torch.sparse.sum(in_inc, dim=1).to_dense().unsqueeze(-1) + 1e-8)
         out_edge_emb = torch.nn.functional.pad(
             out_edge_emb,
             (0, 0, 0, input_nodes.size(0)-out_edge_emb.size(0))
