@@ -10,9 +10,7 @@ import pickle as pk
 
 def build_graph(remove_nodes=False, return_incidence=False):
     g = dgl.DGLGraph()
-    df = pd.read_csv("/data/wikikg90m_kddcup2021/processed/train_hrt.txt",
-                     header=None, sep=" ", names=["h","r","t"])
-    h, r, t = df.h.to_numpy(np.int64), df.r.to_numpy(np.int64), df.t.to_numpy(np.int64)
+    h, r, t = np.load("/data/wikikg90m_kddcup2021/processed/train_hrt.npy").T
     g.add_edges(
         torch.from_numpy(h),
         torch.from_numpy(t),

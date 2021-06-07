@@ -35,11 +35,11 @@ class GCNNet(torch.nn.Module):
         out_edge_emb = torch.sparse.mm(
             blocks[0].inc('out').to(self.device),
             self.out_transform(self.rel_emb(blocks[0].edata['type'].to(self.device)))
-        ).div(blocks[0].inc('out').sum(dim=1, keepdim=True))
+        ).div(blocks[0].inc('out').to(self.device).sum(dim=1, keepdim=True))
         in_edge_emb = torch.sparse.mm(
             blocks[0].inc('in').to(self.device),
             self.in_transform(self.rel_emb(blocks[0].edata['type'].to(self.device)))
-        ).div(blocks[0].inc('in').sum(dim=1, keepdim=True))
+        ).div(blocks[0].inc('in').to(self.device).sum(dim=1, keepdim=True))
         out_edge_emb = torch.nn.functional.pad(
             out_edge_emb,
             (0, 0, 0, input_nodes.size(0)-out_edge_emb.size(0))
