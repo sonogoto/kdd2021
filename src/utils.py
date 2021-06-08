@@ -50,16 +50,19 @@ def load_norm_inc():
     return in_inc, out_inc
 
 
-def build_predict_graph(max_batch):
+def build_predict_graph(max_batch, skip_rows=0):
     h, r = np.loadtxt("/data/wikikg90m_kddcup2021/processed/val_hr.txt",
                       delimiter=" ",
                       dtype=np.int64,
-                      max_rows=max_batch
+                      max_rows=max_batch,
+                      skiprows=skip_rows
                       ).T
     repeat = np.ones(h.shape[0], dtype=np.int32) + 1000
     h = np.repeat(h, repeat)
     r = np.repeat(r, repeat)
-    t_candidate = np.load("/data/wikikg90m_kddcup2021/processed/val_t_candidate.npy")[:max_batch].reshape(-1)
+    t_candidate = np.load(
+        "/data/wikikg90m_kddcup2021/processed/val_t_candidate.npy"
+    )[skip_rows:skip_rows+max_batch].reshape(-1)
     g = dgl.DGLGraph()
     g.add_edges(
         torch.from_numpy(h),

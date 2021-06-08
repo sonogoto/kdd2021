@@ -5,99 +5,39 @@ import numpy as np
 from torch.utils.data import DataLoader
 import time
 from utils import load_norm_inc
+from math import sqrt
 
 
 class TransE(torch.nn.Module):
 
-    def __init__(self, num_rels=1315, feat_dim=768, rel_emb_dim=32, out_dim=32, device='cpu'):
+    def __init__(self, num_rels=1315, num_eneities=87143637, emb_dim=128):
         super(TransE, self).__init__()
-        self.device = device
-        self.rel_emb_dim = rel_emb_dim
-        self.rel_emb = torch.nn.Parameter(torch.Tensor(num_rels, rel_emb_dim)).to(device)
-        self.out_transform = torch.nn.Linear(rel_emb_dim, rel_emb_dim).to(device)
-        self.in_transform = torch.nn.Linear(rel_emb_dim, rel_emb_dim).to(device)
-        self.entity_transform = torch.nn.Linear(feat_dim+2*rel_emb_dim, out_dim).to(device)
-        self.relation_transform = torch.nn.Linear(rel_emb_dim, out_dim).to(device)
+        self.rel_emb = torch.nn.Embedding(num_rels, emb_dim, max_norm=1)
+        torch.nn.init.uniform_(self.rel_emb.weight, -6./sqrt(emb_dim), 6./sqrt(emb_dim))
+        self.entity_emb = torch.nn.Embedding(num_eneities, emb_dim)
+        torch.nn.init.uniform_(self.rel_emb.weight, -6./sqrt(emb_dim), 6./sqrt(emb_dim))
 
-    def forward(self, data):
-        h_in_inc, h_out_inc, h_node_feat, \
-         eid, pos_t_in_inc, pos_t_out_inc, pos_t_node_feat, \
-         neg_t_in_inc, neg_t_out_inc, neg_t_node_feat = data
-        r_emb = F.normalize(self.relation_transform(self.rel_emb[eid]), dim=1, p=2)
-        h_in_emb = self.in_transform(torch.sparse.mm(
-            h_in_inc,
-            self.rel_emb
-        ))
-        h_out_emb = self.out_transform(torch.sparse.mm(
-            h_out_inc,
-            self.rel_emb
-        ))
-        h_feat = torch.cat(
-            (h_node_feat, h_in_emb, h_out_emb),
-            dim=1
-        )
-        h_emb = F.normalize(self.entity_transform(h_feat), dim=1, p=2)
-        pos_t_in_emb = self.in_transform(torch.sparse.mm(
-            pos_t_in_inc,
-            self.rel_emb
-        ))
-        pos_t_out_emb = self.out_transform(torch.sparse.mm(
-            pos_t_out_inc,
-            self.rel_emb
-        ))
-        pos_t_feat = torch.cat(
-            (pos_t_node_feat, pos_t_in_emb, pos_t_out_emb),
-            dim=1
-        )
-        pos_t_emb = F.normalize(self.entity_transform(pos_t_feat), dim=1, p=2)
-        neg_t_in_emb = self.in_transform(torch.sparse.mm(
-            neg_t_in_inc,
-            self.rel_emb
-        ))
-        neg_t_out_emb = self.out_transform(torch.sparse.mm(
-            neg_t_out_inc,
-            self.rel_emb
-        ))
-        neg_t_feat = torch.cat(
-            (neg_t_node_feat, neg_t_in_emb, neg_t_out_emb),
-            dim=1
-        )
-        neg_t_emb = F.normalize(self.entity_transform(neg_t_feat), dim=1, p=2)
-        pos_score = torch.norm(h_emb + r_emb - pos_t_emb, dim=1)
-        neg_score = torch.norm(h_emb + r_emb - neg_t_emb, dim=1)
+    def forward(self, data, device='cpu'):
+        h_id, e_id, t_id, neg_id = data
+        h_emb = self.entity_emb(h_id).to(device)
+        r_emb = self.rel_emb(e_id).to(device)
+        t_emb = self.entity_emb(t_id).to(device)
+        neg_emb = self.entity_emb(neg_id).to(device)
+        pos_score = torch.norm(h_emb + r_emb - t_emb, dim=1)
+        # replace tail
+        if np.random.rand() > .5:
+            neg_score = torch.norm(h_emb + r_emb - neg_emb, dim=1)
+        # replace header
+        else:
+            neg_score = torch.norm(neg_emb + r_emb - t_emb, dim=1)
         return pos_score, neg_score
 
     @torch.no_grad()
     def predict(self, data):
-        h_in_inc, h_out_inc, h_node_feat, \
-        eid, t_in_inc, t_out_inc, t_node_feat = data
-        r_emb = F.normalize(self.relation_transform(self.rel_emb[eid]), dim=1, p=2)
-        h_in_emb = self.in_transform(torch.sparse.mm(
-            h_in_inc,
-            self.rel_emb
-        ))
-        h_out_emb = self.out_transform(torch.sparse.mm(
-            h_out_inc,
-            self.rel_emb
-        ))
-        h_feat = torch.cat(
-            (h_node_feat, h_in_emb, h_out_emb),
-            dim=1
-        )
-        h_emb = F.normalize(self.entity_transform(h_feat), dim=1, p=2)
-        t_in_emb = self.in_transform(torch.sparse.mm(
-            t_in_inc,
-            self.rel_emb
-        ))
-        t_out_emb = self.out_transform(torch.sparse.mm(
-            t_out_inc,
-            self.rel_emb
-        ))
-        t_feat = torch.cat(
-            (t_node_feat, t_in_emb, t_out_emb),
-            dim=1
-        )
-        t_emb = F.normalize(self.entity_transform(t_feat), dim=1, p=2)
+        h_id, e_id, t_id = data
+        h_emb = self.entity_emb(h_id)
+        r_emb = self.rel_emb(e_id)
+        t_emb = self.entity_emb(t_id)
         return torch.norm(h_emb + r_emb - t_emb, dim=1)
 
 
@@ -116,35 +56,20 @@ def train(batch_size=4096, device='cpu'):
     data = torch.from_numpy(np.load("/data/wikikg90m_kddcup2021/processed/train_hrt.npy"))
     dataloader = DataLoader(data, batch_size=batch_size, shuffle=True, num_workers=32)
     print(time.ctime(), "preparing data done")
-    print(time.ctime(), "loading incidence matrix ......")
-    in_inc, out_inc = load_norm_inc()
-    print(time.ctime(), "loading incidence matrix done")
-    node_feat = torch.from_numpy(
-        np.memmap("/run/dataset/entity_feat_fill_nan.npy", mode="r", dtype=np.float16, shape=(87143637, 768))[:]
-    ).type(torch.float16)
-    transe = TransE(device='cuda:7')
+    print(time.ctime(), "building TransE model ......")
+    transe = TransE()
+    print(time.ctime(), "building TransE model done")
     opt = torch.optim.Adam(transe.parameters())
     batch_idx = 0
     for triplets in dataloader:
         batch_idx += 1
-        neg_t_id = torch.randint(87143637, size=(triplets.size(0),), dtype=torch.int64, device='cpu')
-        h_id, e_id, pos_t_id = triplets[:,0], triplets[:,1].to(device), triplets[:,2]
-        h_in_inc = get_batch_inc(h_id, in_inc, device)
-        h_out_inc = get_batch_inc(h_id, out_inc, device)
-        h_node_feat = node_feat[h_id].to(device)
-        pos_t_in_inc = get_batch_inc(pos_t_id, in_inc, device)
-        pos_t_out_inc = get_batch_inc(pos_t_id, out_inc, device)
-        pos_t_node_feat = node_feat[pos_t_id].to(device)
-        neg_t_in_inc = get_batch_inc(neg_t_id, in_inc, device)
-        neg_t_out_inc = get_batch_inc(neg_t_id, out_inc, device)
-        neg_t_node_feat = node_feat[neg_t_id].to(device)
-        p_score, n_score = transe((h_in_inc, h_out_inc, h_node_feat,
-                                   e_id, pos_t_in_inc, pos_t_out_inc, pos_t_node_feat,
-                                   neg_t_in_inc, neg_t_out_inc, neg_t_node_feat))
-        loss = (p_score - n_score + 10).clamp(min=0).mean()
+        neg_id = torch.randint(87143637, size=(triplets.size(0),), dtype=torch.int64, device='cpu')
+        h_id, e_id, t_id = triplets[:,0], triplets[:,1], triplets[:,2]
+        p_score, n_score = transe((h_id, e_id, t_id, neg_id), device=device)
+        loss = (p_score - n_score + 5).clamp(min=0).mean()
         if batch_idx % 100 == 0:
             print(time.ctime(), "%d-th mini batch, loss: %s" % (batch_idx, loss.item()))
-            torch.save(transe.state_dict(), "/home/liusx/torch_models/transe/transe.pth.%d"%batch_idx)
+            # torch.save(transe.state_dict(), "/home/liusx/torch_models/transe/transe.pth.%d"%batch_idx)
         opt.zero_grad()
         loss.backward()
         opt.step()
